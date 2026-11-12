@@ -1,156 +1,179 @@
-"""Разделение по говорящим: sherpa-onnx (pyannote segmentation 3.0 + 3D-Speaker eres2net), CPU, без токенов HF.
-Сопоставление слов со спикерами перенесено из ~/.claude/skills/transcribe/scripts/transcribe_local.py."""
+"""Разделение по говорящим.
+
+Единица - сегмент распознавания (фраза до ~8 с, см. engines.split_segments). Для каждой фразы считается
+голосовой эмбеддинг (3D-Speaker eres2net через sherpa-onnx), затем агломеративная кластеризация по косинусному
+сходству (average linkage, центроиды взвешены длительностью). Мелкие кластеры (меньше 2% речи и меньше 20 с) -
+это шум от коротких реплик, смеха, наложений: они приклеиваются к ближайшему крупному спикеру.
+
+Почему не штатный OfflineSpeakerDiarization (pyannote-сегментация + FastClustering): на реальной встрече
+4 человек он выдавал 47-81 «спикера» и работал в 10 раз дольше. Подход по фразам на той же записи даёт
+4 спикера, и разметка совпадает у трёх разных моделей эмбеддингов (ARI 0.97-1.0) в диапазоне порогов 0.5-0.6.
+"""
 import os
 import sys
-import tarfile
 import urllib.request
+
+import numpy as np
 
 from .config import MODELS_DIR
 
+SR = 16000
 DIAR_DIR = MODELS_DIR / 'diarization'
-SEG_DIR = DIAR_DIR / 'sherpa-onnx-pyannote-segmentation-3-0'
-SEG_MODEL = SEG_DIR / 'model.onnx'
 EMB_MODEL = DIAR_DIR / '3dspeaker_speech_eres2net_base_200k_sv_zh-cn_16k-common.onnx'
-BASE_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/'
-SEG_URL = BASE_URL + 'speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2'
-EMB_URL = BASE_URL + 'speaker-recongition-models/' + EMB_MODEL.name
+EMB_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/' + EMB_MODEL.name
 
-
-def _download(url, dest):
-    tmp = dest.with_suffix(dest.suffix + '.part')
-    print('[diarize] загрузка %s' % url, file=sys.stderr, flush=True)
-    with urllib.request.urlopen(url, timeout=60) as r, open(tmp, 'wb') as f:
-        while True:
-            chunk = r.read(1 << 20)
-            if not chunk:
-                break
-            f.write(chunk)
-    os.replace(tmp, dest)
+DEFAULT_THRESHOLD = 0.55   # косинусное сходство для слияния; больше -> больше спикеров
+MIN_EMBED_SEC = 0.5        # более короткие фразы ненадёжны: спикер берётся у соседней фразы
+MIN_SPEAKER_SHARE = 0.02   # спикер должен набрать хотя бы 2% речи...
+MIN_SPEAKER_SEC = 20.0     # ...и при этом 20 секунд (или 10% речи - для коротких записей)
 
 
 def ensure_models():
     DIAR_DIR.mkdir(parents=True, exist_ok=True)
-    if not SEG_MODEL.exists():
-        arc = DIAR_DIR / 'segmentation.tar.bz2'
-        _download(SEG_URL, arc)
-        with tarfile.open(arc) as t:
-            t.extractall(DIAR_DIR, filter='data')
-        arc.unlink()
     if not EMB_MODEL.exists():
-        _download(EMB_URL, EMB_MODEL)
-    return SEG_MODEL, EMB_MODEL
+        tmp = EMB_MODEL.with_suffix('.part')
+        print('[diarize] загрузка %s' % EMB_URL, file=sys.stderr, flush=True)
+        with urllib.request.urlopen(EMB_URL, timeout=60) as r, open(tmp, 'wb') as f:
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+        os.replace(tmp, EMB_MODEL)
+    return EMB_MODEL
 
 
-def diarize(samples, num_speakers=None, threshold=0.5, on_progress=None):
-    """-> [{start, end, speaker}] по времени."""
+def _embeddings(samples, segments, on_progress):
     import sherpa_onnx
-    ensure_models()
     threads = max(1, min(4, (os.cpu_count() or 4) // 2))
-    config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
-        segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
-            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(SEG_MODEL)),
-            provider='cpu', num_threads=threads),
-        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(EMB_MODEL), provider='cpu', num_threads=threads),
-        clustering=sherpa_onnx.FastClusteringConfig(num_clusters=num_speakers or -1, threshold=threshold),
-        min_duration_on=0.3, min_duration_off=0.5)
-    if not config.validate():
-        raise RuntimeError('некорректная конфигурация диаризации')
-    sd = sherpa_onnx.OfflineSpeakerDiarization(config)
+    ex = sherpa_onnx.SpeakerEmbeddingExtractor(
+        sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(ensure_models()), num_threads=threads))
+    vecs, idx = [], []
+    for i, s in enumerate(segments):
+        a, b = int(s['start'] * SR), int(s['end'] * SR)
+        if b - a >= MIN_EMBED_SEC * SR:
+            st = ex.create_stream()
+            st.accept_waveform(SR, samples[a:b])
+            st.input_finished()
+            vecs.append(np.asarray(ex.compute(st), dtype=np.float32))
+            idx.append(i)
+        if on_progress and i % 20 == 0:
+            on_progress(0.9 * i / len(segments))
+    if not vecs:
+        return None, []
+    e = np.stack(vecs)
+    return e / np.maximum(np.linalg.norm(e, axis=1, keepdims=True), 1e-9), idx
 
-    def cb(done, total):
-        if on_progress and total:
-            on_progress(done / total)
+
+def _cluster(e, w, threshold, n_clusters=None):
+    """Агломеративная кластеризация. Без n_clusters - сливаем, пока сходство центроидов >= threshold;
+    с n_clusters - пока не останется ровно столько кластеров."""
+    n = len(e)
+    members = [[i] for i in range(n)]
+    cent, wt = e.copy(), w.astype(np.float64).copy()
+    alive = np.ones(n, bool)
+    sim = cent @ cent.T
+    np.fill_diagonal(sim, -2.0)
+    count = n
+    while count > 1:
+        k = int(np.argmax(sim))
+        a, b = divmod(k, n)
+        if n_clusters is None and sim[a, b] < threshold:
+            break
+        if n_clusters is not None and count <= n_clusters:
+            break
+        members[a] += members[b]
+        c = cent[a] * wt[a] + cent[b] * wt[b]
+        wt[a] += wt[b]
+        cent[a] = c / max(np.linalg.norm(c), 1e-9)
+        alive[b] = False
+        sim[b, :] = -2.0
+        sim[:, b] = -2.0
+        row = cent @ cent[a]
+        row[~alive] = -2.0
+        row[a] = -2.0
+        sim[a, :] = row
+        sim[:, a] = row
+        count -= 1
+    keep = np.flatnonzero(alive)
+    return [members[i] for i in keep], cent[keep]
+
+
+def _is_noise(sec, total):
+    share = sec / total
+    return share < MIN_SPEAKER_SHARE or (sec < MIN_SPEAKER_SEC and share < 0.10)
+
+
+def _select_speakers(clusters, cent, e, w, num_speakers=None):
+    """Выбор настоящих спикеров среди кластеров, остальные (шум) приклеиваются к ближайшему.
+    Если число спикеров задано: лишних крупных сливаем по сходству, недостающих добираем из следующих по размеру.
+    -> метка для каждой фразы."""
+    total = w.sum()
+    dur = [float(w[c].sum()) for c in clusters]
+    order = sorted(range(len(clusters)), key=lambda i: -dur[i])
+    big = [i for i in order if not _is_noise(dur[i], total)] or order[:1]
+    groups = [[i] for i in big]
+    if num_speakers:
+        if len(groups) < num_speakers:
+            groups += [[i] for i in order if i not in big][:num_speakers - len(groups)]
+        while len(groups) > num_speakers:  # слить два самых похожих крупных
+            gc = np.stack([_centroid(cent, dur, g) for g in groups])
+            sim = gc @ gc.T
+            np.fill_diagonal(sim, -2)
+            a, b = divmod(int(np.argmax(sim)), len(groups))
+            groups[a] += groups.pop(b)
+    gc = np.stack([_centroid(cent, dur, g) for g in groups])
+    owner = {ci: gi for gi, g in enumerate(groups) for ci in g}
+    labels = np.empty(len(e), int)
+    for ci, c in enumerate(clusters):
+        for s in c:
+            labels[s] = owner[ci] if ci in owner else int(np.argmax(gc @ e[s]))
+    return labels
+
+
+def _centroid(cent, dur, group):
+    c = sum(cent[i] * dur[i] for i in group)
+    return c / max(np.linalg.norm(c), 1e-9)
+
+
+def diarize(samples, segments, num_speakers=None, threshold=None, on_progress=None):
+    """Проставляет seg['speaker'] (1, 2, ... по порядку появления) каждому сегменту. Возвращает число спикеров."""
+    if not segments:
         return 0
+    threshold = DEFAULT_THRESHOLD if threshold is None else threshold
+    e, idx = _embeddings(samples, segments, on_progress)
+    if e is None:
+        for s in segments:
+            s['speaker'] = 1
+        return 1
+    w = np.array([segments[i]['end'] - segments[i]['start'] for i in idx])
+    clusters, cent = _cluster(e, w, threshold)
+    labels = _select_speakers(clusters, cent, e, w, num_speakers)
+    for j, i in enumerate(idx):
+        segments[i]['speaker'] = int(labels[j])
 
-    result = sd.process(samples, callback=cb).sort_by_start_time()
-    return [{'start': float(r.start), 'end': float(r.end), 'speaker': int(r.speaker)} for r in result]
-
-
-def _assign(mid, turns):
-    for t in turns:
-        if t['start'] <= mid <= t['end']:
-            return t['speaker']
-    if not turns:
-        return 0
-    return min(turns, key=lambda t: min(abs(t['start'] - mid), abs(t['end'] - mid)))['speaker']
-
-
-def _smooth(words, min_run=1.2):
-    """Короткая «пробивка» другого спикера между двумя кусками одного и того же - переатрибутировать."""
-    if not words:
-        return
-    runs, i, n = [], 0, len(words)
-    while i < n:
-        j = i
-        while j + 1 < n and words[j + 1]['speaker'] == words[i]['speaker']:
-            j += 1
-        runs.append([i, j, words[i]['speaker'], words[j]['end'] - words[i]['start']])
-        i = j + 1
-    changed = True
-    while changed:
-        changed = False
-        for k in range(1, len(runs) - 1):
-            ri, rj, rspk, rdur = runs[k]
-            li, _, lspk, _ = runs[k - 1]
-            nspk = runs[k + 1][2]
-            if rdur < min_run and lspk == nspk and lspk != rspk:
-                for x in range(ri, rj + 1):
-                    words[x]['speaker'] = lspk
-                nj = runs[k + 1][1]
-                runs[k - 1] = [li, nj, lspk, words[nj]['end'] - words[li]['start']]
-                del runs[k:k + 2]
-                changed = True
-                break
-
-
-def merge(segments, turns, gap=1.5):
-    """Сегменты с пословными таймкодами + реплики диаризации -> реплики [{start, end, speaker, text}].
-    Каждому сегменту тоже проставляется seg['speaker'] (для субтитров).
-    Номера спикеров перенумеровываются по порядку появления (1, 2, ...)."""
-    words, loose = [], []
-    for idx, seg in enumerate(segments):
-        if seg.get('words'):
-            for w in seg['words']:
-                words.append(dict(w, speaker=_assign((w['start'] + w['end']) / 2, turns), _seg=idx))
-        else:
-            seg['speaker'] = _assign((seg['start'] + seg['end']) / 2, turns)
-            loose.append({'start': seg['start'], 'end': seg['end'], 'text': seg['text'],
-                          'speaker': _assign((seg['start'] + seg['end']) / 2, turns)})
-    _smooth(words)
-    votes = {}
-    for w in words:
-        v = votes.setdefault(w['_seg'], {})
-        v[w['speaker']] = v.get(w['speaker'], 0) + (w['end'] - w['start']) + 1e-3
-    for idx, v in votes.items():
-        segments[idx]['speaker'] = max(v, key=v.get)
-
-    utts = []
-    for w in words:
-        if utts and utts[-1]['speaker'] == w['speaker'] and not utts[-1].get('_loose'):
-            utts[-1]['end'] = w['end']
-            utts[-1]['text'] += w['text']
-        else:
-            utts.append({'start': w['start'], 'end': w['end'], 'speaker': w['speaker'], 'text': w['text']})
-    utts.extend(dict(u, _loose=True) for u in loose)
-    utts.sort(key=lambda u: u['start'])
-
-    merged = []
-    for u in utts:
-        u.pop('_loose', None)
-        u['text'] = u['text'].strip()
-        if not u['text']:
-            continue
-        if merged and merged[-1]['speaker'] == u['speaker'] and u['start'] - merged[-1]['end'] < gap:
-            merged[-1]['end'] = u['end']
-            merged[-1]['text'] += ' ' + u['text']
-        else:
-            merged.append(u)
+    # короткие фразы без эмбеддинга - спикер ближайшей по времени фразы
+    labeled = [i for i in range(len(segments)) if 'speaker' in segments[i]]
+    for i, s in enumerate(segments):
+        if 'speaker' not in s:
+            near = min(labeled, key=lambda k: min(abs(segments[k]['start'] - s['end']), abs(s['start'] - segments[k]['end'])))
+            s['speaker'] = segments[near]['speaker']
 
     order = {}
-    for u in merged:
-        order.setdefault(u['speaker'], len(order) + 1)
-        u['speaker'] = order[u['speaker']]
-    for seg in segments:
-        if 'speaker' in seg:
-            seg['speaker'] = order.setdefault(seg['speaker'], len(order) + 1)
-    return merged
+    for s in segments:
+        s['speaker'] = order.setdefault(s['speaker'], len(order) + 1)
+    if on_progress:
+        on_progress(1.0)
+    return len(order)
+
+
+def utterances(segments, gap=5.0):
+    """Соседние фразы одного спикера (пауза меньше gap) -> реплики [{start, end, speaker, text}]."""
+    out = []
+    for s in segments:
+        if out and out[-1]['speaker'] == s['speaker'] and s['start'] - out[-1]['end'] < gap:
+            out[-1]['end'] = s['end']
+            out[-1]['text'] += ' ' + s['text']
+        else:
+            out.append({'start': s['start'], 'end': s['end'], 'speaker': s['speaker'], 'text': s['text']})
+    return out

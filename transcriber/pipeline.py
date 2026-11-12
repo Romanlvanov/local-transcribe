@@ -8,7 +8,7 @@ from . import audio, writers
 from .config import FORMATS, MEDIA_EXT, load_config, read_terms, terms_prompt
 
 # доля общего прогресса на каждый этап
-STAGES = {'convert': (0.0, 0.03), 'model': (0.03, 0.05), 'transcribe': (0.05, 0.97), 'diarize': (0.85, 0.97), 'write': (0.97, 1.0)}
+STAGES = {'convert': (0.0, 0.03), 'model': (0.03, 0.05), 'transcribe': (0.05, 0.97), 'diarize': (0.92, 0.97), 'write': (0.97, 1.0)}
 STAGE_NAMES = {'convert': 'извлечение звука', 'model': 'загрузка модели', 'transcribe': 'распознавание',
                'diarize': 'разделение по спикерам', 'write': 'запись результата'}
 
@@ -30,7 +30,7 @@ def resolve_options(**kw):
         'formats': formats,
         'diarize': bool(kw.get('diarize')),
         'num_speakers': kw.get('num_speakers') or None,
-        'threshold': kw['threshold'] if kw.get('threshold') is not None else (cfg.get('diarize') or {}).get('threshold', 0.5),
+        'threshold': kw['threshold'] if kw.get('threshold') is not None else (cfg.get('diarize') or {}).get('threshold'),
         'terms': kw.get('terms'),
         'no_terms': bool(kw.get('no_terms')),
         'out': kw.get('out'),
@@ -139,10 +139,9 @@ def run_file(src, opts, on_event=None, stem=None):
     if opts['diarize'] and segments:
         from . import diarize
         emit('diarize', 0.0)
-        turns = diarize.diarize(samples, num_speakers=opts['num_speakers'], threshold=opts['threshold'],
-                                on_progress=lambda f: emit('diarize', f))
-        utterances = diarize.merge(segments, turns)
-        speakers = len({u['speaker'] for u in utterances})
+        speakers = diarize.diarize(samples, segments, num_speakers=opts['num_speakers'], threshold=opts['threshold'],
+                                   on_progress=lambda f: emit('diarize', f))
+        utterances = diarize.utterances(segments)
 
     emit('write', 0.0)
     meta = {'name': src.name, 'duration': duration, 'model': opts['model'], 'engine': opts['engine'],

@@ -63,7 +63,7 @@ def main():
     ap.add_argument('--formats', help='через запятую: ' + ','.join(FORMATS))
     ap.add_argument('--diarize', action='store_true', help='разделить по спикерам')
     ap.add_argument('--num-speakers', type=int)
-    ap.add_argument('--threshold', type=float, help='порог кластеризации спикеров (меньше - больше спикеров)')
+    ap.add_argument('--threshold', type=float, help='порог сходства голосов 0.4-0.7, по умолчанию 0.55 (больше - больше спикеров)')
     ap.add_argument('--terms', help='доп. файл со словарём терминов')
     ap.add_argument('--no-terms', action='store_true', help='не использовать словарь терминов')
     ap.add_argument('--force', action='store_true', help='перерасшифровать, даже если результат уже есть')

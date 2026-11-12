@@ -6,6 +6,6 @@
     "cpu": "large-v3-turbo"
   },
   "formats": ["txt", "md", "srt", "vtt", "json"],
-  "diarize": { "threshold": 0.5 },
+  "diarize": { "threshold": 0.55 },
   "paths": { "hfHome": "" }
 }
