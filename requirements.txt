@@ -47,6 +47,8 @@ pycparser==3.12
 pydantic==2.14.3
 pydantic-core==2.50.4
 pygments==2.21.0
+pyobjc-core==13.0
+pyobjc-framework-cocoa==13.0
 python-multipart==0.0.33
 pyyaml==6.0.3
 readme-renderer==46.0
@@ -55,6 +57,7 @@ requests==2.34.2
 requests-toolbelt==1.0.0
 rfc3986==2.0.0
 rich==15.0.0
+rumps==0.4.0
 scipy==1.18.1
 setuptools==84.2.1
 sherpa-onnx==2.0.1
