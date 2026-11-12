@@ -1,0 +1,11 @@
+{
+  "engine": "mlx",
+  "language": "ru",
+  "models": {
+    "mlx": "large-v3-turbo",
+    "cpu": "large-v3-turbo"
+  },
+  "formats": ["txt", "md", "srt", "vtt", "json"],
+  "diarize": { "threshold": 0.5 },
+  "paths": { "hfHome": "" }
+}

@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Расшифровка</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73; --line: #e3e1dc;
+  --accent: #2f6fde; --accent-soft: #e8effc; --ok: #1f8a4c; --err: #c4352b; --warn: #a86500;
+  --chip: #f0efeb; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+  --s1: #2f6fde; --s2: #c2512f; --s3: #1f8a4c; --s4: #8a4fc9; --s5: #b2851b; --s6: #2a8c9a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161618; --panel: #1f1f22; --text: #ececee; --muted: #9a9aa1; --line: #2e2e33;
+    --accent: #6b9cff; --accent-soft: #23304a; --ok: #4cc27f; --err: #ff7468; --warn: #e0a640;
+    --chip: #2a2a2e; --shadow: none;
+    --s1: #6b9cff; --s2: #ff8a66; --s3: #4cc27f; --s4: #b78cff; --s5: #e8c14f; --s6: #5cc9d6;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 18px 24px 8px; max-width: 1280px; margin: 0 auto; }
+header h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+header .sub { color: var(--muted); font-size: 13px; }
+main { display: grid; grid-template-columns: 400px 1fr; gap: 16px; padding: 8px 24px 24px; max-width: 1280px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 8px 16px 16px; } header { padding: 16px 16px 4px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.pad { padding: 14px 16px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+#drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 22px 12px; text-align: center; cursor: pointer; transition: .15s; }
+#drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-soft); }
+#drop b { display: block; font-size: 15px; margin-bottom: 2px; }
+#drop span { color: var(--muted); font-size: 13px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row + .row { margin-top: 10px; }
+input[type=text], input[type=number], select, textarea {
+  font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; min-width: 0;
+}
+input[type=text] { flex: 1; }
+input[type=number] { width: 70px; }
+select { flex: 1; }
+textarea { width: 100%; min-height: 180px; font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
+button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.small { font-size: 12.5px; padding: 3px 9px; }
+button.link { border: none; background: none; color: var(--muted); padding: 2px 6px; }
+button.link:hover { color: var(--err); }
+label.opt { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.grid2 { display: grid; grid-template-columns: 110px 1fr; gap: 9px 10px; align-items: center; }
+.grid2 > .lbl { color: var(--muted); font-size: 13.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips label { display: flex; align-items: center; gap: 4px; background: var(--chip); border-radius: 6px; padding: 3px 8px; font-size: 13px; cursor: pointer; }
+.hint { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+.msg { font-size: 13px; margin-top: 8px; min-height: 1em; }
+.msg.err { color: var(--err); }
+
+#jobs { display: flex; flex-direction: column; }
+.job { padding: 10px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+.job:first-child { border-top: none; }
+.job:hover { background: var(--bg); }
+.job.sel { background: var(--accent-soft); }
+.job .top { display: flex; align-items: center; gap: 8px; }
+.job .name { flex: 1; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { font-size: 12px; padding: 1px 7px; border-radius: 10px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+.status.done { color: var(--ok); } .status.error { color: var(--err); } .status.running { color: var(--accent); }
+.meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+.bar { height: 4px; background: var(--chip); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s; }
+.bar.indet i { width: 30% !important; animation: slide 1.2s infinite ease-in-out; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+.empty { color: var(--muted); padding: 16px; font-size: 14px; }
+
+#result { display: flex; flex-direction: column; min-height: 420px; }
+#result .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+#result .head .title { flex: 1 1 200px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#result .tools { display: flex; flex-wrap: wrap; gap: 6px; }
+#result .head #search { flex: 1 1 100%; }
+#transcript { padding: 6px 16px 16px; overflow: auto; max-height: calc(100vh - 210px); }
+.utt { display: grid; grid-template-columns: 58px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.utt:last-child { border-bottom: none; }
+.utt .t { color: var(--muted); font: 12.5px/1.9 ui-monospace, "SF Mono", Menlo, monospace; }
+.utt .who { font-size: 12.5px; font-weight: 650; margin-right: 6px; }
+.utt mark { background: #ffe58a; color: inherit; border-radius: 2px; }
+@media (prefers-color-scheme: dark) { .utt mark { background: #6b5a14; } }
+details summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+details summary::-webkit-details-marker { display: none; }
+details summary h2 { margin: 0; }
+details[open] summary { margin-bottom: 10px; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 7px 14px; border-radius: 8px; font-size: 13.5px; opacity: 0; transition: .2s; pointer-events: none; }
+.toast.on { opacity: .92; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Расшифровка</h1>
+  <span class="sub">локально на этом Mac, файлы никуда не отправляются</span>
+</header>
+<main>
+  <div class="col">
+    <section class="panel pad">
+      <h2>Добавить</h2>
+      <div id="drop"><b>Перетащите видео или аудио</b><span>или нажмите, чтобы выбрать файлы</span></div>
+      <input id="picker" type="file" multiple hidden accept="video/*,audio/*,.mkv,.webm,.opus,.oga,.amr">
+      <div class="row" style="margin-top:12px">
+        <input id="path" type="text" placeholder="или путь к файлу/папке: ~/Movies/встреча.mp4">
+        <button id="addPath">Добавить</button>
+      </div>
+      <label class="opt" style="margin-top:8px"><input id="saveNext" type="checkbox" checked> результат по пути - рядом с исходником</label>
+      <div id="addMsg" class="msg"></div>
+    </section>
+
+    <section class="panel pad">
+      <h2>Настройки</h2>
+      <div class="grid2">
+        <span class="lbl">Движок</span>
+        <select id="engine">
+          <option value="mlx">MLX, видеокарта M4 (быстро)</option>
+          <option value="cpu">faster-whisper, процессор</option>
+        </select>
+        <span class="lbl">Модель</span>
+        <select id="model">
+          <option value="large-v3-turbo">large-v3-turbo (рекомендуется)</option>
+          <option value="large-v3">large-v3 (точнее, медленнее)</option>
+          <option value="medium">medium</option>
+          <option value="small">small (быстро, грубее)</option>
+        </select>
+        <span class="lbl">Язык</span>
+        <select id="language">
+          <option value="ru">русский</option><option value="en">английский</option>
+          <option value="auto">определить автоматически</option>
+          <option value="uk">украинский</option><option value="de">немецкий</option>
+        </select>
+        <span class="lbl">Спикеры</span>
+        <div class="row" style="margin:0">
+          <label class="opt"><input id="diarize" type="checkbox"> разделять</label>
+          <input id="numSpk" type="number" min="1" max="20" placeholder="авто" title="Сколько человек говорит; пусто - определить автоматически">
+        </div>
+        <span class="lbl">Форматы</span>
+        <div class="chips" id="formats"></div>
+        <span class="lbl"></span>
+        <label class="opt"><input id="force" type="checkbox"> перерасшифровать, если уже есть</label>
+      </div>
+    </section>
+
+    <section class="panel pad">
+      <details id="termsBox">
+        <summary><h2>Словарь терминов</h2><span class="hint" style="margin:0">подсказка модели</span></summary>
+        <textarea id="terms" spellcheck="false"></textarea>
+        <div class="row"><button id="saveTerms" class="primary">Сохранить</button><span id="termsMsg" class="hint" style="margin:0"></span></div>
+        <div class="hint">По одному термину на строку, # - комментарий. Используются первые ~100 слов.</div>
+      </details>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel">
+      <div class="pad" style="padding-bottom:6px"><h2 style="margin:0">Очередь</h2></div>
+      <div id="jobs"><div class="empty">Пока пусто. Добавьте файл слева.</div></div>
+    </section>
+    <section class="panel" id="result">
+      <div class="empty">Выберите готовое задание, чтобы посмотреть текст.</div>
+    </section>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const FMT_LABEL = {txt: 'TXT', md: 'MD', srt: 'SRT', vtt: 'VTT', json: 'JSON'};
+const STATUS = {queued: 'в очереди', running: 'идёт', done: 'готово', error: 'ошибка', cancelled: 'отменено'};
+let jobs = [], selected = null, loadedResult = null, resultData = null;
+
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 1800); }
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function clock(t) { t = Math.floor(t || 0); const h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : String(m).padStart(2,'0')) + ':' + String(s).padStart(2,'0'); }
+function dur(sec) { if (sec == null) return ''; sec = Math.round(sec); return sec < 60 ? sec + ' с' : Math.floor(sec/60) + ' мин ' + (sec%60) + ' с'; }
+
+const PREF_KEY = 'transcribe.options';
+function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(options())); } catch (e) {} }
+function options() {
+  return {
+    engine: $('#engine').value, model: $('#model').value, language: $('#language').value,
+    diarize: $('#diarize').checked, num_speakers: $('#numSpk').value || null, force: $('#force').checked,
+    formats: [...document.querySelectorAll('#formats input:checked')].map(i => i.value),
+  };
+}
+
+async function api(url, opt = {}) {
+  const r = await fetch(url, opt);
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
+  return r.json();
+}
+
+async function init() {
+  const cfg = await api('/api/config');
+  let prefs = {};
+  try { prefs = JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch (e) {}
+  $('#formats').innerHTML = cfg.all_formats.map(f =>
+    `<label><input type="checkbox" value="${f}" ${(prefs.formats || cfg.formats).includes(f) ? 'checked' : ''} ${f === 'json' ? 'checked disabled title="нужен для просмотра"' : ''}> ${FMT_LABEL[f]}</label>`).join('');
+  $('#engine').value = prefs.engine || cfg.engine;
+  $('#model').value = prefs.model || (cfg.models || {})[$('#engine').value] || 'large-v3-turbo';
+  $('#language').value = prefs.language || cfg.language;
+  $('#diarize').checked = !!prefs.diarize;
+  document.querySelectorAll('select, input[type=checkbox], #numSpk').forEach(el => el.addEventListener('change', savePrefs));
+  const t = await api('/api/terms'); $('#terms').value = t.text;
+  poll(); setInterval(poll, 1000);
+}
+
+// ---- добавление ----
+const drop = $('#drop');
+drop.onclick = () => $('#picker').click();
+$('#picker').onchange = e => { upload([...e.target.files]); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => upload([...e.dataTransfer.files]));
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => e.preventDefault());
+
+async function upload(files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+  fd.append('options', JSON.stringify(options()));
+  $('#addMsg').className = 'msg'; $('#addMsg').textContent = 'Загрузка ' + files.length + ' файл(ов)...';
+  try {
+    const created = await api('/api/jobs/upload', {method: 'POST', body: fd});
+    $('#addMsg').textContent = 'Добавлено в очередь: ' + created.length;
+    if (created[0]) selected = created[0].id;
+    poll();
+  } catch (e) { $('#addMsg').className = 'msg err'; $('#addMsg').textContent = e.message; }
+}
+
+$('#addPath').onclick = addPath;
+$('#path').addEventListener('keydown', e => { if (e.key === 'Enter') addPath(); });
+async function addPath() {
+  const p = $('#path').value.trim(); if (!p) return;
+  $('#addMsg').className = 'msg'; $('#addMsg').textContent = '';
+  try {
+    const created = await api('/api/jobs/paths', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({paths: [p], options: options(), save_next: $('#saveNext').checked})});
+    $('#addMsg').textContent = 'Добавлено в очередь: ' + created.length; $('#path').value = '';
+    if (created[0]) selected = created[0].id;
+    poll();
+  } catch (e) { $('#addMsg').className = 'msg err'; $('#addMsg').textContent = e.message; }
+}
+
+// ---- очередь ----
+async function poll() {
+  try { jobs = await api('/api/jobs'); } catch (e) { return; }
+  renderJobs();
+  const j = jobs.find(x => x.id === selected);
+  if (j && j.status === 'done' && loadedResult !== j.id + ':' + j.finished) loadResult(j);
+  if (!j && selected) { selected = null; renderEmptyResult(); }
+}
+
+function renderJobs() {
+  const box = $('#jobs');
+  if (!jobs.length) { box.innerHTML = '<div class="empty">Пока пусто. Добавьте файл слева.</div>'; box._html = null; return; }
+  const html = jobs.map(j => {
+    const pct = Math.round((j.progress || 0) * 100);
+    const r = j.result || {};
+    const meta = [];
+    if (j.status === 'running') { meta.push(pct + '%', esc(j.stage_name || '')); if (j.eta) meta.push('осталось ~' + dur(j.eta)); }
+    if (j.status === 'done') {
+      if (r.skipped) meta.push('уже было расшифровано');
+      else { meta.push(dur(r.duration) + ' записи', 'за ' + dur(r.seconds)); if (r.speakers) meta.push('спикеров: ' + r.speakers); }
+    }
+    if (j.status === 'error') meta.push('<span style="color:var(--err)">' + esc(String(j.error || '').slice(0, 200)) + '</span>');
+    meta.push(esc(j.options.engine.toUpperCase() + ' · ' + j.options.model));
+    const indet = j.status === 'running' && pct < 5;
+    return `<div class="job ${j.id === selected ? 'sel' : ''}" data-id="${j.id}">
+      <div class="top"><span class="name" title="${esc(j.source)}">${esc(j.name)}</span>
+        <span class="status ${j.status}">${STATUS[j.status] || j.status}</span>
+        ${j.status === 'error' || j.status === 'cancelled' ? `<button class="small" data-act="retry">Повторить</button>` : ''}
+        <button class="link" data-act="del" title="${j.status === 'queued' || j.status === 'running' ? 'Отменить' : 'Убрать из списка'}">✕</button></div>
+      <div class="meta">${meta.join('<span>·</span>')}</div>
+      ${j.status === 'running' || j.status === 'queued' ? `<div class="bar ${indet ? 'indet' : ''}"><i style="width:${pct}%"></i></div>` : ''}
+    </div>`;
+  }).join('');
+  if (html !== box._html) { box.innerHTML = html; box._html = html; }  // не перерисовывать без изменений
+}
+
+$('#jobs').addEventListener('click', async e => {
+  const el = e.target.closest('.job'); if (!el) return;
+  const id = el.dataset.id, act = e.target.dataset.act;
+  if (act === 'del') {
+    const j = jobs.find(x => x.id === id);
+    if ((j.status === 'running' || j.status === 'queued') && !confirm('Отменить расшифровку «' + j.name + '»?')) return;
+    await api('/api/jobs/' + id, {method: 'DELETE'}); poll(); return;
+  }
+  if (act === 'retry') { await api('/api/jobs/' + id + '/retry', {method: 'POST'}); poll(); return; }
+  selected = id; loadedResult = null; renderJobs();
+  const j = jobs.find(x => x.id === id);
+  if (j.status === 'done') loadResult(j);
+  else $('#result').innerHTML = `<div class="empty">${esc(j.name)}: ${STATUS[j.status]}. Текст появится, когда расшифровка закончится.</div>`;
+});
+
+// ---- результат ----
+function renderEmptyResult() { $('#result').innerHTML = '<div class="empty">Выберите готовое задание, чтобы посмотреть текст.</div>'; }
+
+async function loadResult(j) {
+  loadedResult = j.id + ':' + j.finished;
+  try { resultData = await api('/api/jobs/' + j.id + '/result'); }
+  catch (e) { $('#result').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const files = resultData.files;
+  $('#result').innerHTML = `
+    <div class="head">
+      <span class="title" title="${esc(j.source)}">${esc(j.name)}</span>
+      <div class="tools">
+        ${['txt','md','srt','vtt','json'].filter(f => files[f]).map(f => `<a href="/api/jobs/${j.id}/download/${f}"><button class="small">${FMT_LABEL[f]}</button></a>`).join('')}
+        <button class="small" id="copyBtn">Копировать текст</button>
+        <button class="small" id="revealBtn">В Finder</button>
+      </div>
+      <input id="search" type="text" placeholder="Поиск по тексту">
+    </div>
+    <div id="transcript"></div>`;
+  $('#copyBtn').onclick = () => { navigator.clipboard.writeText(plainText()).then(() => toast('Текст скопирован')); };
+  $('#revealBtn').onclick = () => api('/api/jobs/' + j.id + '/reveal', {method: 'POST'});
+  $('#search').oninput = renderTranscript;
+  renderTranscript();
+}
+
+function utterances() {
+  // соседние сегменты одного спикера склеиваем в реплику; без спикеров - абзацы по паузам
+  const out = [];
+  for (const s of resultData.segments) {
+    const last = out[out.length - 1];
+    const same = last && (s.speaker != null ? last.speaker === s.speaker : s.start - last.end < 1.5 && last.text.length < 500);
+    if (same) { last.text += ' ' + s.text; last.end = s.end; }
+    else out.push({start: s.start, end: s.end, text: s.text, speaker: s.speaker});
+  }
+  return out;
+}
+
+function plainText() {
+  return utterances().map(u => (u.speaker != null ? 'Спикер ' + u.speaker + ': ' : '') + u.text).join('\n\n');
+}
+
+function renderTranscript() {
+  const q = ($('#search')?.value || '').trim().toLowerCase();
+  const list = utterances().filter(u => !q || u.text.toLowerCase().includes(q));
+  const hl = t => {  // подсветка без рекурсии
+    if (!q) return esc(t);
+    let out = '', pos = 0; const low = t.toLowerCase();
+    for (let i = low.indexOf(q); i >= 0; i = low.indexOf(q, pos)) {
+      out += esc(t.slice(pos, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>'; pos = i + q.length;
+    }
+    return out + esc(t.slice(pos));
+  };
+  $('#transcript').innerHTML = list.length ? list.map(u => `<div class="utt"><span class="t">${clock(u.start)}</span><div>${
+    u.speaker != null ? `<span class="who" style="color:var(--s${(u.speaker - 1) % 6 + 1})">Спикер ${u.speaker}</span>` : ''}${hl(u.text)}</div></div>`).join('')
+    : '<div class="empty">Ничего не найдено.</div>';
+}
+
+// ---- словарь ----
+$('#saveTerms').onclick = async () => {
+  await api('/api/terms', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: $('#terms').value})});
+  $('#termsMsg').textContent = 'Сохранено'; setTimeout(() => $('#termsMsg').textContent = '', 1500);
+};
+$('#engine').addEventListener('change', () => { if ($('#engine').value === 'cpu' && $('#model').value === 'large-v3') toast('large-v3 на процессоре будет медленной'); });
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+.venv/
+.venv-old/
+models/
+uploads/
+output/
+__pycache__/
+*.pyc
+*.tmp
+.claude/
+.DS_Store
